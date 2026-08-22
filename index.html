@@ -384,13 +384,12 @@
   
   <script>
     const firebaseConfig = {
-      apiKey: "AIzaSyCjxTrMAGYPXf_42EGQDVj4b_6uiZAhNSI",
-      authDomain: "maslo-3d.firebaseapp.com",
-      databaseURL: "https://maslo-3d-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId: "maslo-3d",
-      storageBucket: "maslo-3d.firebasestorage.app",
-      messagingSenderId: "247381401412",
-      appId: "1:247381401412:web:c84e69054097093e258111"
+      apiKey: "AIzaSyDTYACvKy5I6-TZGsCUsPgXxEfDROaWpCA",
+      authDomain: "maslo-lab.firebaseapp.com",
+      projectId: "maslo-lab",
+      storageBucket: "maslo-lab.firebasestorage.app",
+      messagingSenderId: "707707434555",
+      appId: "1:707707434555:web:687bfefb8d89b60d064e1e"
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
@@ -1375,6 +1374,7 @@
       
       unsubSettings = db.collection('settings').doc('main').onSnapshot(function (snap) {
         settings = snap.exists ? Object.assign({}, snap.data()) : settings;
+        applyBambusSettings();
         if (!firstDataLoaded && productsLoaded) firstDataLoaded = true;
         
         if (!(snap.metadata && snap.metadata.hasPendingWrites)) scheduleRender();
@@ -1565,7 +1565,8 @@
       
       wrap.querySelectorAll('[data-printer-img]').forEach(function (holder) {
         const key = holder.dataset.printerImg;
-        const url = assetsImg(PRINTERS[key].imgKey);
+        const custom = PRINTERS[key] && PRINTERS[key].customImg;
+        const url = custom ? custom : assetsImg(PRINTERS[key].imgKey);
         if (url) holder.firstElementChild.src = url;
       });
       scheduleShake(effActive);
@@ -1950,7 +1951,7 @@
     
     
     function getPlaybackPct() {
-      try { return Math.min(300, Math.max(50, parseInt(localStorage.getItem('maslolab_anim_speed'), 10) || 100)); } catch (e) { return 100; }
+      try { return Math.min(100, Math.max(10, parseInt(localStorage.getItem('maslolab_anim_speed'), 10) || 100)); } catch (e) { return 100; }
     }
     // Retroaktywne odtwarzanie: przeskaluj pola delay w blokach GCE GIF-a
     function applyGifPlayback(bytes, pct) {
@@ -1997,7 +1998,7 @@
       } catch (e) {}
     }
     window.__setPlayback = function (val) {
-      var pct = Math.min(300, Math.max(50, parseInt(val, 10) || 100));
+      var pct = Math.min(100, Math.max(10, parseInt(val, 10) || 100));
       try { localStorage.setItem('maslolab_anim_speed', String(pct)); } catch (e) {}
       var lbl3 = document.getElementById('anim-playback-value');
       if (lbl3) lbl3.textContent = String(pct);
@@ -2793,10 +2794,26 @@
        setAdminTab(adminTab || 'products');
      }
 
+    function applyBambusSettings() {
+      if (settings.bambusName) PRINTERS.bambus.name = settings.bambusName;
+      if (settings.bambusImage) PRINTERS.bambus.customImg = settings.bambusImage;
+      else delete PRINTERS.bambus.customImg;
+    }
     function renderAdminSettings() {
       document.getElementById('set-banner').value = settings.banner || '';
       var sdEl = document.getElementById('set-disclaimer');
       if (sdEl) sdEl.value = (typeof settings.disclaimer === 'string' && settings.disclaimer.trim()) ? settings.disclaimer : DISCLAIMER_DEFAULT;
+      var bn = document.getElementById('set-bambus-name');
+      if (bn) bn.value = settings.bambusName || '';
+      var bi = document.getElementById('set-bambus-image-data');
+      if (bi) bi.value = settings.bambusImage || '';
+      var bp = document.getElementById('set-bambus-preview-img');
+      var bw = document.getElementById('set-bambus-image-preview');
+      if (bp && bw) {
+        if (settings.bambusImage) { bp.src = settings.bambusImage; bw.classList.remove('hidden'); }
+        else { bp.src = ''; bw.classList.add('hidden'); }
+      }
+      applyBambusSettings();
       document.getElementById('set-mode').value = settings.mode || '';
       var pscBox = document.getElementById('printer-status-controls');
       if (pscBox) {
@@ -3743,15 +3760,43 @@
       const mode = document.getElementById('set-mode').value;
       const disclaimerEl = document.getElementById('set-disclaimer');
       const disclaimer = disclaimerEl ? disclaimerEl.value : '';
+      const bambusName = document.getElementById('set-bambus-name').value.trim() || '';
+      const bambusImage = document.getElementById('set-bambus-image-data').value || '';
       const printersStatus = {};
       document.querySelectorAll('#printer-status-controls [data-printer-status]').forEach(function (sel) {
         printersStatus[sel.dataset.printerStatus] = sel.value;
       });
 
-      db.collection('settings').doc('main').set({ mode: mode, banner: banner, disclaimer: disclaimer, printersStatus: printersStatus, adminPasswordHash: settings.adminPasswordHash || '' })
-        .then(function () { settings.mode = mode; settings.banner = banner; settings.disclaimer = disclaimer; settings.printersStatus = printersStatus; flash('Ustawienia zapisane.'); })
+      db.collection('settings').doc('main').set({ mode: mode, banner: banner, disclaimer: disclaimer, bambusName: bambusName, bambusImage: bambusImage, printersStatus: printersStatus, adminPasswordHash: settings.adminPasswordHash || '' })
+        .then(function () { settings.mode = mode; settings.banner = banner; settings.disclaimer = disclaimer; settings.bambusName = bambusName; settings.bambusImage = bambusImage; settings.printersStatus = printersStatus; applyBambusSettings(); flash('Ustawienia zapisane.'); renderPrinters(); })
         .catch(function (e) { alert('Błąd: ' + e.message); });
     }
+    (function initBambusImageInput(){
+      var inp = document.getElementById('set-bambus-image');
+      var hid = document.getElementById('set-bambus-image-data');
+      var prev = document.getElementById('set-bambus-preview-img');
+      var wrap = document.getElementById('set-bambus-image-preview');
+      var clr = document.getElementById('set-bambus-image-clear');
+      if (!inp || !hid) return;
+      inp.addEventListener('change', function(){
+        var f = inp.files && inp.files[0];
+        if (!f) return;
+        if (f.size > 2 * 1024 * 1024) { alert('Obraz za duży (max 2 MB).'); inp.value=''; return; }
+        var r = new FileReader();
+        r.onload = function(ev){
+          hid.value = ev.target.result;
+          if (prev) prev.src = ev.target.result;
+          if (wrap) wrap.classList.remove('hidden');
+        };
+        r.readAsDataURL(f);
+      });
+      if (clr) clr.addEventListener('click', function(){
+        hid.value = '';
+        if (prev) prev.src = '';
+        if (wrap) wrap.classList.add('hidden');
+        if (inp) inp.value = '';
+      });
+    })();
 
     
     function ordersFilterVal() {
@@ -4620,6 +4665,27 @@
                   class="w-full bg-base border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-accent focus:outline-none"></textarea>
                 <p class="text-xs text-slate-500 mt-1">Pierwsza linia = duży czerwony nagłówek, linie zaczynające się od „- " tworzą listę punktów, linia kończąca się dwukropkiem = podtytuł. Formatowanie: *pogrubienie*, /kursywa/, _podkreślenie_, -skreślenie-, 'monospace'.</p>
               </div>
+              <div class="sm:col-span-2 lg:col-span-3 border-t border-white/10 pt-4 mt-2">
+                <h4 class="text-sm font-semibold text-slate-300 mb-3">Drukarka Bambus — dostosowanie</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm text-slate-400 mb-1">Nazwa drukarki Bambus</label>
+                    <input id="set-bambus-name" type="text" placeholder="Bambus"
+                      class="w-full bg-base border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-accent focus:outline-none" />
+                  </div>
+                  <div>
+                    <label class="block text-sm text-slate-400 mb-1">Obraz drukarki Bambus</label>
+                    <input id="set-bambus-image" type="file" accept="image/*"
+                      class="w-full text-sm text-slate-400 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-base file:text-accent file:font-semibold file:cursor-pointer" />
+                    <input id="set-bambus-image-data" type="hidden" value="" />
+                    <div id="set-bambus-image-preview" class="mt-2 hidden">
+                      <img id="set-bambus-preview-img" alt="Podgląd" class="max-h-24 rounded-lg border border-white/10" />
+                      <button type="button" id="set-bambus-image-clear" class="mt-1 text-xs text-red-400 hover:text-red-300">Usuń obraz</button>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">Zostaw puste aby użyć domyślnego obrazu z assets.json.</p>
+                  </div>
+                </div>
+              </div>
               <div class="lg:col-span-3 flex items-end">
                 <button type="submit"
                   class="px-6 py-2.5 rounded-xl font-semibold bg-accent text-slate-900 transition-all">Zapisz ustawienia</button>
@@ -4794,7 +4860,7 @@
                   class="w-full accent-accent cursor-pointer"
                   oninput="window.__setAnimFps(this.value)" />
                 <label for="anim-playback-slider" class="block text-xs text-slate-500 mt-3 mb-1">Prędkość odtwarzania (<span id="anim-playback-value">100</span>%)</label>
-                <input id="anim-playback-slider" type="range" min="50" max="300" step="25" value="100"
+                <input id="anim-playback-slider" type="range" min="10" max="100" step="5" value="100"
                   class="w-full accent-accent cursor-pointer"
                   oninput="window.__setPlayback(this.value)" />
                 <div class="mt-3">
@@ -4814,6 +4880,8 @@
                     class="color-swatch rounded-full w-8 h-8 border border-white/20 ring-accent" style="background:#1a1a1a"></button>
                   <button type="button" data-model-color="szary" title="Szary"
                     class="color-swatch rounded-full w-8 h-8 border border-white/20 ring-accent" style="background:#9aa0a6"></button>
+                  <button type="button" data-model-color="biały" title="Biały"
+                    class="color-swatch rounded-full w-8 h-8 border border-white/20 ring-accent" style="background:#ffffff"></button>
                 </div>
               </div>
             </div>
@@ -5016,7 +5084,8 @@
       'czekolada': 0x452c1a,
       'granatowy': 0x1a2b6d,
       'czarny': 0x1a1a1a,
-      'szary': 0x9aa0a6
+      'szary': 0x9aa0a6,
+      'biały': 0xffffff
     };
     window.COLOR_PRESETS = COLOR_PRESETS;
     const REF_FOV = 45;       
@@ -5112,7 +5181,6 @@
       let box = new THREE.Box3().setFromObject(product);
       const center = box.getCenter(new THREE.Vector3());
       product.position.set(-center.x, -center.y, -center.z);
-      product.rotation.y = deg2rad(animYDeg);
       product.updateMatrixWorld(true);
 
       box = new THREE.Box3().setFromObject(product);
@@ -5131,13 +5199,14 @@
       const refTanHalf = Math.tan(deg2rad(REF_FOV) / 2);
       const targetFill = 0.90;
       const elevation = 0.35; 
-      
+      const SWING = deg2rad(65);
+      const yBase = deg2rad(animYDeg);
       
       
       const ORBIT_SAMPLES = 24;
       let dist = 1;
       for (let s = 0; s < ORBIT_SAMPLES; s++) {
-        const ang = (s / ORBIT_SAMPLES) * 2 * Math.PI;
+        const ang = yBase + SWING * Math.sin((s / ORBIT_SAMPLES) * 2 * Math.PI);
         const dirS = new THREE.Vector3(Math.sin(ang), elevation, Math.cos(ang)).normalize();
         const rightS = new THREE.Vector3().crossVectors(dirS, vUp).normalize();
         const upBS = new THREE.Vector3().crossVectors(rightS, dirS).normalize();
@@ -5181,7 +5250,7 @@
       const encoder = new GifencEncoder();
       let globalPalette = null;
       for (let f = 0; f < frames; f++) {
-        const a = f * angleStep;
+        const a = yBase + SWING * Math.sin((f / frames) * 2 * Math.PI);
         const dir = new THREE.Vector3(Math.sin(a), elevation, Math.cos(a)).normalize();
         camera.position.copy(c2).add(dir.multiplyScalar(renderDist));
         camera.lookAt(c2);
